@@ -1,8 +1,14 @@
-export interface AgentResponse {
+export type AgentType = 'license' | 'permit' | 'citizen-service';
+
+export interface AgentResponse<T = unknown> {
   success: boolean;
   message: string;
-  data?: any;
+  data?: T;
   timestamp: string;
+}
+
+export interface CitizenServiceReply {
+  reply: { en: string; ja: string };
 }
 
 export interface BusinessVerification {
@@ -15,6 +21,18 @@ export interface BusinessVerification {
     registrationDate?: string;
     status: string;
   };
+}
+
+export interface CompanyEnrichment {
+  companyName: string;
+  industry: string;
+  employeeCount: string;
+  annualRevenue: string;
+  foundedYear: number;
+  headquarters: string;
+  businessType: string;
+  creditScore: string;
+  riskLevel: 'Low' | 'Medium' | 'High';
 }
 
 export interface ComplianceCode {
@@ -33,9 +51,10 @@ export interface Translation {
 
 export interface AudioData {
   text: string;
-  audioUrl: string;
-  duration: number;
+  /** BCP-47 tag for the speech engine, e.g. "ja-JP". */
   language: string;
+  /** Estimated playback duration in seconds. */
+  duration: number;
 }
 
 export interface DashboardMetrics {

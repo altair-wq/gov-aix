@@ -54,7 +54,7 @@ export default function DemoScenarios() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {scenarios.map((scenario, index) => {
+          {scenarios.map((scenario) => {
             const Icon = scenario.icon;
             return (
               <div

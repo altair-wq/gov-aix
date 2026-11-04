@@ -37,4 +37,4 @@ venv/
 
 # IDE
 .idea/
-.vscode/
+.vscode/!.env.example

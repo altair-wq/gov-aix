@@ -1,4 +1,3 @@
-import Navigation from '@/components/Navigation';
 import DemoBuild from '@/components/DemoBuild';
 import DemoScenarios from '@/components/DemoScenarios';
 import { ArrowRight, Play, BarChart3 } from 'lucide-react';
@@ -7,8 +6,6 @@ import Link from 'next/link';
 export default function Home() {
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900">
-      <Navigation />
-      
       {/* Hero Section */}
       <section className="py-20 bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center">

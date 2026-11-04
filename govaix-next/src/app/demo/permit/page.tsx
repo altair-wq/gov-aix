@@ -4,65 +4,91 @@ import { useState } from 'react';
 import { translate } from '@/lib/services/lingo';
 import { enrichCompany } from '@/lib/services/crustData';
 import { generateComplianceCode } from '@/lib/services/randomLabs';
+import { isStubMode } from '@/lib/config/env';
+import type { CompanyEnrichment, ComplianceCode, Translation } from '@/lib/services/types';
 import { Home, ArrowRight, Globe, Code, Download, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 
 export default function PermitDemo() {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    language: 'ja' | 'en';
+    businessType: string;
+    address: string;
+    businessName: string;
+  }>({
     language: 'ja',
     businessType: 'restaurant',
     address: '',
     businessName: ''
   });
   const [userText, setUserText] = useState('');
-  const [translation, setTranslation] = useState<any>(null);
-  const [enrichment, setEnrichment] = useState<any>(null);
-  const [complianceCode, setComplianceCode] = useState<any>(null);
-  const [permitIssued, setPermitIssued] = useState(false);
+  const [translation, setTranslation] = useState<Translation | null>(null);
+  const [enrichment, setEnrichment] = useState<CompanyEnrichment | null>(null);
+  const [complianceCode, setComplianceCode] = useState<ComplianceCode | null>(null);
+  const [permit, setPermit] = useState<{ id: string; issuedAt: Date } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleTranslate = async () => {
-    if (!userText.trim()) return;
-    
+  const targetLang = formData.language === 'ja' ? 'en' : 'ja';
+  const canIssue = Boolean(complianceCode && formData.businessName.trim() && formData.address.trim());
+
+  const updateField = <K extends keyof typeof formData>(field: K, value: (typeof formData)[K]) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    // Changing permit details invalidates anything already generated from them.
+    if (field !== 'language') {
+      setComplianceCode(null);
+      setPermit(null);
+    }
+    if (field === 'businessName') setEnrichment(null);
+    if (field === 'language') setTranslation(null);
+  };
+
+  const run = async (label: string, fn: () => Promise<void>) => {
     setIsProcessing(true);
+    setError(null);
     try {
-      const result = await translate(userText, 'en');
-      setTranslation(result);
-    } catch (error) {
-      console.error('Translation error:', error);
+      await fn();
+    } catch (err) {
+      console.error(`${label} error:`, err);
+      setError(`${label} failed. Please try again.`);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleEnrichCompany = async () => {
-    if (!formData.businessName.trim()) return;
-    
-    setIsProcessing(true);
-    try {
-      const result = await enrichCompany(formData.businessName);
-      setEnrichment(result);
-    } catch (error) {
-      console.error('Company enrichment error:', error);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  const handleTranslate = () =>
+    userText.trim() && run('Translation', async () => setTranslation(await translate(userText, targetLang)));
 
-  const handleGenerateCode = async () => {
-    setIsProcessing(true);
-    try {
-      const result = await generateComplianceCode(`Permit for ${formData.businessType} at ${formData.address}`);
-      setComplianceCode(result);
-    } catch (error) {
-      console.error('Code generation error:', error);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  const handleEnrichCompany = () =>
+    formData.businessName.trim() &&
+    run('Company enrichment', async () => setEnrichment(await enrichCompany(formData.businessName)));
+
+  const handleGenerateCode = () =>
+    run('Code generation', async () =>
+      setComplianceCode(await generateComplianceCode(`Permit for ${formData.businessType} at ${formData.address}`)),
+    );
 
   const handleIssuePermit = () => {
-    setPermitIssued(true);
+    const id = `TKY-${Date.now().toString(36).toUpperCase()}`;
+    setPermit({ id, issuedAt: new Date() });
+  };
+
+  const handleDownloadPermit = () => {
+    if (!permit) return;
+    const body = [
+      'GovAIx Digital Permit (DEMO — not a valid government document)',
+      '',
+      `Permit ID: ${permit.id}`,
+      `Business:  ${formData.businessName}`,
+      `Type:      ${formData.businessType}`,
+      `Address:   ${formData.address}`,
+      `Issued:    ${permit.issuedAt.toISOString()}`,
+      `Compliance level: ${complianceCode?.complianceLevel ?? 'n/a'}`,
+    ].join('\n');
+    const url = URL.createObjectURL(new Blob([body], { type: 'text/plain' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: `permit-${permit.id}.txt` });
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -79,7 +105,7 @@ export default function PermitDemo() {
         </nav>
 
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-4 mb-8">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
                 Multi-Language Permit Processing
@@ -88,9 +114,11 @@ export default function PermitDemo() {
                 Process permits in multiple languages with AI-powered translation and compliance
               </p>
             </div>
-            <div className="bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300 px-3 py-1 rounded-full text-sm font-medium">
-              (stubbed)
-            </div>
+            {isStubMode() && (
+              <div className="self-start sm:self-auto shrink-0 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300 px-3 py-1 rounded-full text-sm font-medium">
+                (stubbed)
+              </div>
+            )}
           </div>
 
           {/* Language and Business Type Selection */}
@@ -102,7 +130,7 @@ export default function PermitDemo() {
               <select
                 id="language"
                 value={formData.language}
-                onChange={(e) => setFormData({ ...formData, language: e.target.value })}
+                onChange={(e) => updateField('language', e.target.value as 'ja' | 'en')}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 aria-label="Select language"
               >
@@ -118,7 +146,7 @@ export default function PermitDemo() {
               <select
                 id="businessType"
                 value={formData.businessType}
-                onChange={(e) => setFormData({ ...formData, businessType: e.target.value })}
+                onChange={(e) => updateField('businessType', e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 aria-label="Select business type"
               >
@@ -137,7 +165,7 @@ export default function PermitDemo() {
                 type="text"
                 id="address"
                 value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                onChange={(e) => updateField('address', e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 placeholder="Enter business address"
                 aria-label="Business address"
@@ -150,12 +178,12 @@ export default function PermitDemo() {
             <label htmlFor="businessName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Business Name
             </label>
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-4">
               <input
                 type="text"
                 id="businessName"
                 value={formData.businessName}
-                onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+                onChange={(e) => updateField('businessName', e.target.value)}
                 className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 placeholder="Enter business name for enrichment"
                 aria-label="Business name"
@@ -177,7 +205,7 @@ export default function PermitDemo() {
             <label htmlFor="userText" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               User Request (in {formData.language === 'ja' ? 'Japanese' : 'English'})
             </label>
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-4">
               <textarea
                 id="userText"
                 value={userText}
@@ -194,10 +222,16 @@ export default function PermitDemo() {
                 aria-label="Translate text"
               >
                 <Globe className="h-4 w-4 mr-2" />
-                Translate
+                Translate to {targetLang === 'en' ? 'English' : 'Japanese'}
               </button>
             </div>
           </div>
+
+          {error && (
+            <div role="alert" className="mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 rounded-lg">
+              {error}
+            </div>
+          )}
 
           {/* Translation Results */}
           {translation && (
@@ -254,6 +288,7 @@ export default function PermitDemo() {
             <button
               onClick={handleGenerateCode}
               disabled={!formData.address.trim() || isProcessing}
+              title={!formData.address.trim() ? 'Enter a business address first' : undefined}
               className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white font-medium rounded-lg transition-colors duration-200 flex items-center"
               aria-label="Generate compliance code"
             >
@@ -280,21 +315,25 @@ export default function PermitDemo() {
           )}
 
           {/* Issue Digital Permit */}
-          {complianceCode && (
-            <div className="flex justify-center">
+          {complianceCode && !permit && (
+            <div className="flex flex-col items-center gap-2">
               <button
                 onClick={handleIssuePermit}
-                className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors duration-200 flex items-center"
+                disabled={!canIssue}
+                className="px-8 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-medium rounded-lg transition-colors duration-200 flex items-center"
                 aria-label="Issue digital permit"
               >
-                <Download className="h-4 w-4 mr-2" />
+                <CheckCircle className="h-4 w-4 mr-2" />
                 Issue Digital Permit
               </button>
+              {!canIssue && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">Enter a business name to issue the permit.</p>
+              )}
             </div>
           )}
 
           {/* Digital Permit Card */}
-          {permitIssued && (
+          {permit && (
             <div className="mt-8 p-6 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 border border-green-200 dark:border-green-800 rounded-lg">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center">
@@ -303,13 +342,21 @@ export default function PermitDemo() {
                     Digital Permit Issued
                   </h3>
                 </div>
-                <div className="text-right">
-                  <div className="text-2xl font-bold text-green-600">✓</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">QR Code</div>
-                </div>
+                <button
+                  onClick={handleDownloadPermit}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg flex items-center"
+                  aria-label="Download permit"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </button>
               </div>
               
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Permit ID:</span>
+                  <p className="text-gray-600 dark:text-gray-400 font-mono">{permit.id}</p>
+                </div>
                 <div>
                   <span className="font-medium text-gray-700 dark:text-gray-300">Business:</span>
                   <p className="text-gray-600 dark:text-gray-400">{formData.businessName}</p>
@@ -324,7 +371,7 @@ export default function PermitDemo() {
                 </div>
                 <div>
                   <span className="font-medium text-gray-700 dark:text-gray-300">Issued:</span>
-                  <p className="text-gray-600 dark:text-gray-400">{new Date().toLocaleDateString()}</p>
+                  <p className="text-gray-600 dark:text-gray-400">{permit.issuedAt.toLocaleDateString()}</p>
                 </div>
               </div>
             </div>
