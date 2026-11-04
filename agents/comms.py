@@ -1,7 +1,7 @@
-import openai, sys, os
-from typing import Dict
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.metrics import timed_call, token_count
+"""Public Communications agent."""
+from typing import Any, Dict, Optional
+
+from agents.base import DEFAULT_MODEL, DEFAULT_TEMPERATURE, AgentSpec, run_agent
 
 COMMS_PROMPT = """Create a citizen-friendly public announcement (150-200 words) about this government policy, plus 5 frequently asked questions with answers.
 
@@ -13,17 +13,12 @@ The announcement should:
 
 The FAQ should address common concerns and provide practical information.
 
-Document:
-{}
-
 Make it accessible and reassuring for the general public."""
 
-def run(text: str, model: str = "gpt-4o-mini", temp: float = 0.3) -> Dict:
+SPEC = AgentSpec(title="Public Communications", instructions=COMMS_PROMPT)
+
+
+def run(text: str, model: str = DEFAULT_MODEL, temp: float = DEFAULT_TEMPERATURE, *,
+        api_key: Optional[str] = None, client: Optional[Any] = None) -> Dict[str, Any]:
     """Generate citizen-friendly communications"""
-    try:
-        client, prompt = openai.OpenAI(), COMMS_PROMPT.format(text)
-        response, ms = timed_call(client.chat.completions.create, model=model, messages=[{"role": "user", "content": prompt}], temperature=temp, max_tokens=500)
-        content = response.choices[0].message.content
-        return {"title": "Public Communications", "content": content, "tokens_in": token_count(prompt), "tokens_out": token_count(content), "latency_ms": ms}
-    except Exception as e:
-        return {"title": "Public Communications", "content": f"Error generating communications: {str(e)}", "tokens_in": token_count(text), "tokens_out": 0, "latency_ms": 0}
+    return run_agent(SPEC, text, model, temp, api_key=api_key, client=client)

@@ -1,41 +1,49 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { generateMockMetrics, generateMockAgentPerformance } from '@/lib/services/mockData';
+import { useState, useEffect, useRef } from 'react';
+import { generateMockMetrics, generateMockAgentPerformance, seededRng } from '@/lib/services/mockData';
 import { Home, ArrowRight, RefreshCw, TrendingUp, DollarSign, Globe, CheckCircle, Clock } from 'lucide-react';
 import Link from 'next/link';
 
 export default function Dashboard() {
-  const [metrics, setMetrics] = useState(() => generateMockMetrics());
-  const [agentPerformance, setAgentPerformance] = useState(() => generateMockAgentPerformance());
+  // The page is statically prerendered, so the first render must be
+  // deterministic or React reports a hydration mismatch. Seed it, then let
+  // refreshes use real randomness.
+  const [metrics, setMetrics] = useState(() => generateMockMetrics(seededRng(2025)));
+  const [agentPerformance, setAgentPerformance] = useState(() => generateMockAgentPerformance(seededRng(42)));
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const refreshTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refreshData = () => {
+    setMetrics(generateMockMetrics());
+    setAgentPerformance(generateMockAgentPerformance());
+    setLastUpdated(new Date());
+  };
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      setMetrics(generateMockMetrics());
-      setAgentPerformance(generateMockAgentPerformance());
-      setLastUpdated(new Date());
+    refreshTimeout.current = setTimeout(() => {
+      refreshData();
       setIsRefreshing(false);
     }, 1000);
   };
 
   useEffect(() => {
     // Auto-refresh every 30 seconds
-    const interval = setInterval(() => {
-      setMetrics(generateMockMetrics());
-      setAgentPerformance(generateMockAgentPerformance());
-      setLastUpdated(new Date());
-    }, 30000);
-
-    return () => clearInterval(interval);
+    const interval = setInterval(refreshData, 30000);
+    return () => {
+      clearInterval(interval);
+      if (refreshTimeout.current) clearTimeout(refreshTimeout.current);
+    };
   }, []);
 
   const metricCards = [
     {
       title: 'Speed Improvement',
-      value: `${metrics.speedImprovement}x`,
+      value: metrics.speedImprovement,
+      unit: 'x',
       icon: TrendingUp,
       color: 'blue',
       target: 100,
@@ -43,7 +51,8 @@ export default function Dashboard() {
     },
     {
       title: 'Cost Reduction',
-      value: `${metrics.costReduction}%`,
+      value: metrics.costReduction,
+      unit: '%',
       icon: DollarSign,
       color: 'green',
       target: 75,
@@ -52,6 +61,7 @@ export default function Dashboard() {
     {
       title: 'Languages Served',
       value: metrics.languagesServed,
+      unit: '',
       icon: Globe,
       color: 'purple',
       target: 20,
@@ -59,7 +69,8 @@ export default function Dashboard() {
     },
     {
       title: 'Agent Success Rate',
-      value: `${metrics.agentSuccessRate}%`,
+      value: metrics.agentSuccessRate,
+      unit: '%',
       icon: CheckCircle,
       color: 'green',
       target: 95,
@@ -67,14 +78,13 @@ export default function Dashboard() {
     }
   ];
 
-  const getColorClasses = (color: string) => {
-    const colors = {
-      blue: 'bg-blue-500 text-blue-600',
-      green: 'bg-green-500 text-green-600',
-      purple: 'bg-purple-500 text-purple-600'
-    };
-    return colors[color as keyof typeof colors] || colors.blue;
-  };
+  // Full class names (not concatenated) so Tailwind can detect them.
+  // Tailwind v4 dropped `bg-opacity-*`; use the `/10` alpha modifier instead.
+  const colorClasses = {
+    blue: { tint: 'bg-blue-500/10', icon: 'text-blue-600 dark:text-blue-400', bar: 'bg-blue-500' },
+    green: { tint: 'bg-green-500/10', icon: 'text-green-600 dark:text-green-400', bar: 'bg-green-500' },
+    purple: { tint: 'bg-purple-500/10', icon: 'text-purple-600 dark:text-purple-400', bar: 'bg-purple-500' },
+  } as const;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
@@ -102,7 +112,7 @@ export default function Dashboard() {
           <div className="flex items-center space-x-4">
             <div className="text-sm text-gray-500 dark:text-gray-400">
               <Clock className="h-4 w-4 inline mr-1" />
-              Last updated: {lastUpdated.toLocaleTimeString()}
+              Last updated: {lastUpdated ? lastUpdated.toLocaleTimeString() : 'just now'}
             </div>
             <button
               onClick={handleRefresh}
@@ -118,10 +128,11 @@ export default function Dashboard() {
 
         {/* Metrics Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-          {metricCards.map((card, index) => {
+          {metricCards.map((card) => {
             const Icon = card.icon;
-            const colorClasses = getColorClasses(card.color);
-            const isTargetMet = parseInt(card.value.toString()) >= card.target;
+            const colors = colorClasses[card.color as keyof typeof colorClasses];
+            const progress = (card.value / card.target) * 100;
+            const isTargetMet = card.value >= card.target;
             
             return (
               <div
@@ -129,8 +140,8 @@ export default function Dashboard() {
                 className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 p-6 border border-gray-200 dark:border-gray-700"
               >
                 <div className="flex items-center justify-between mb-4">
-                  <div className={`p-3 rounded-lg ${colorClasses.split(' ')[0]} bg-opacity-10`}>
-                    <Icon className={`h-6 w-6 ${colorClasses.split(' ')[1]}`} />
+                  <div className={`p-3 rounded-lg ${colors.tint}`}>
+                    <Icon className={`h-6 w-6 ${colors.icon}`} />
                   </div>
                   {isTargetMet && (
                     <div className="bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-300 px-2 py-1 rounded-full text-xs font-medium">
@@ -141,7 +152,7 @@ export default function Dashboard() {
                 
                 <div className="mb-2">
                   <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {card.value}
+                    {card.value}{card.unit}
                   </div>
                   <div className="text-sm text-gray-500 dark:text-gray-400">
                     {card.title}
@@ -151,12 +162,12 @@ export default function Dashboard() {
                 <div className="mb-4">
                   <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
                     <span>Progress</span>
-                    <span>{Math.round((parseInt(card.value.toString()) / card.target) * 100)}%</span>
+                    <span>{Math.round(progress)}%</span>
                   </div>
                   <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                     <div
-                      className={`h-2 rounded-full ${colorClasses.split(' ')[0]}`}
-                      style={{ width: `${Math.min((parseInt(card.value.toString()) / card.target) * 100, 100)}%` }}
+                      className={`h-2 rounded-full ${colors.bar}`}
+                      style={{ width: `${Math.min(progress, 100)}%` }}
                     />
                   </div>
                 </div>
@@ -175,7 +186,7 @@ export default function Dashboard() {
             <h2 className="text-xl font-bold text-gray-900 dark:text-white">
               Agent Performance Analytics
             </h2>
-            <div className="text-sm text-gray-500 dark:text-gray-400">
+            <div className="text-sm text-gray-500 dark:text-gray-400" suppressHydrationWarning>
               Today: {new Date().toLocaleDateString()}
             </div>
           </div>
@@ -202,7 +213,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {agentPerformance.map((agent, index) => (
+                {agentPerformance.map((agent) => (
                   <tr key={agent.agent} className="border-b border-gray-100 dark:border-gray-700">
                     <td className="py-3 px-4">
                       <div className="font-medium text-gray-900 dark:text-white">

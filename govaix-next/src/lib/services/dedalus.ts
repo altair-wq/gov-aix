@@ -1,28 +1,52 @@
-import { AgentResponse } from './types';
+import { AgentResponse, AgentType, CitizenServiceReply } from './types';
+import { delay } from './util';
 
-const DEDALUS_API_URL = process.env.NEXT_PUBLIC_DEDALUS_API_URL || 'https://api.dedalus.mock';
+const LATENCIES: Record<AgentType, number> = { license: 150, permit: 200, 'citizen-service': 180 };
 
-export async function initMCP(): Promise<AgentResponse> {
-  // Simulate MCP server initialization
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
+export async function initMCP(): Promise<AgentResponse<{ agents: AgentType[] }>> {
+  await delay(100);
   return {
     success: true,
     message: 'MCP servers initialized successfully',
-    data: { message: 'MCP servers initialized for 3 agent types' },
-    timestamp: new Date().toISOString()
+    data: { agents: ['license', 'permit', 'citizen-service'] },
+    timestamp: new Date().toISOString(),
   };
 }
 
-export async function routeToAgent(type: 'license' | 'permit' | 'citizen-service', payload: any): Promise<AgentResponse> {
-  // Simulate agent routing with different response times
-  const latencies = { license: 150, permit: 200, 'citizen-service': 180 };
-  await new Promise(resolve => setTimeout(resolve, latencies[type] || 150));
-  
+const CITIZEN_REPLY: CitizenServiceReply['reply'] = {
+  en: 'Thank you for your inquiry. To apply for a restaurant business permit, please submit your business registration number, floor plan, and food hygiene manager certificate. You can start the application online now.',
+  ja: 'お問い合わせありがとうございます。飲食店営業許可の申請には、法人登記番号、店舗の平面図、食品衛生責任者の資格証明書が必要です。今すぐオンラインで申請を開始できます。',
+};
+
+export async function routeToAgent(
+  type: 'citizen-service',
+  payload: Record<string, unknown>,
+): Promise<AgentResponse<CitizenServiceReply>>;
+export async function routeToAgent(
+  type: AgentType,
+  payload: Record<string, unknown>,
+): Promise<AgentResponse<{ referenceId: string }>>;
+export async function routeToAgent(
+  type: AgentType,
+  payload: Record<string, unknown>,
+): Promise<AgentResponse<CitizenServiceReply | { referenceId: string }>> {
+  void payload; // forwarded to the real Dedalus endpoint once wired up
+  await delay(LATENCIES[type]);
+
+  if (type === 'citizen-service') {
+    return {
+      success: true,
+      message: CITIZEN_REPLY.en,
+      data: { reply: CITIZEN_REPLY },
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  const referenceId = `${type.toUpperCase().slice(0, 3)}-${Date.now().toString(36).toUpperCase()}`;
   return {
     success: true,
-    message: `Agent ${type} processed request successfully`,
-    data: { result: 'Request processed by agent', payload },
-    timestamp: new Date().toISOString()
+    message: `Application routed to the ${type} agent. Reference ${referenceId}.`,
+    data: { referenceId },
+    timestamp: new Date().toISOString(),
   };
 }

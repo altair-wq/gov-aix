@@ -1,53 +1,87 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { translate } from '@/lib/services/lingo';
 import { routeToAgent } from '@/lib/services/dedalus';
-import { textToSpeech } from '@/lib/services/shisa';
-import { Home, ArrowRight, Mic, Globe, Play, Send } from 'lucide-react';
+import { canSpeak, speak, speechToText, stopSpeaking, textToSpeech } from '@/lib/services/shisa';
+import { isStubMode } from '@/lib/config/env';
+import type { AudioData } from '@/lib/services/types';
+import { Home, ArrowRight, Mic, Globe, Play, Send, Square } from 'lucide-react';
 import Link from 'next/link';
 
 export default function VoiceDemo() {
   const [japaneseText, setJapaneseText] = useState('');
   const [englishTranslation, setEnglishTranslation] = useState('');
-  const [agentResponse, setAgentResponse] = useState('');
-  const [audioUrl, setAudioUrl] = useState('');
+  const [agentResponse, setAgentResponse] = useState<{ en: string; ja: string } | null>(null);
+  const [audio, setAudio] = useState<AudioData | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(true);
 
-  const simulateRecording = () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      stopSpeaking();
+    };
+  }, []);
+
+  const simulateRecording = async () => {
     setIsRecording(true);
-    setTimeout(() => {
-      setJapaneseText('こんにちは、レストランの営業許可を申請したいです。');
-      setIsRecording(false);
-    }, 2000);
+    setError(null);
+    try {
+      const transcript = await speechToText();
+      if (mounted.current) setJapaneseText(transcript);
+    } finally {
+      if (mounted.current) setIsRecording(false);
+    }
   };
 
   const handleProcess = async () => {
     if (!japaneseText.trim()) return;
-    
+
     setIsProcessing(true);
+    setError(null);
+    setAgentResponse(null);
+    setAudio(null);
     try {
-      // Translate Japanese to English
       const translation = await translate(japaneseText, 'en');
       setEnglishTranslation(translation.translated);
-      
-      // Route to citizen service agent
+
       const agentResult = await routeToAgent('citizen-service', {
         originalText: japaneseText,
         translatedText: translation.translated,
-        language: 'ja'
+        language: 'ja',
       });
-      
-      setAgentResponse(agentResult.message || 'Your restaurant permit application has been processed. Please provide your business registration details to proceed.');
-      
-      // Generate Japanese audio response
-      const audioResult = await textToSpeech(agentResult.message || 'Your application has been processed successfully.', 'ja');
-      setAudioUrl(audioResult.audioUrl);
-    } catch (error) {
-      console.error('Voice processing error:', error);
+      const reply = agentResult.data?.reply ?? { en: agentResult.message, ja: agentResult.message };
+      setAgentResponse(reply);
+
+      // Speak the reply back in the caller's language.
+      setAudio(await textToSpeech(reply.ja, 'ja'));
+    } catch (err) {
+      console.error('Voice processing error:', err);
+      setError('Something went wrong while processing the inquiry. Please try again.');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handlePlay = async () => {
+    if (!audio) return;
+    if (isSpeaking) {
+      stopSpeaking();
+      setIsSpeaking(false);
+      return;
+    }
+    setIsSpeaking(true);
+    try {
+      await speak(audio);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Playback failed.');
+    } finally {
+      if (mounted.current) setIsSpeaking(false);
     }
   };
 
@@ -65,7 +99,7 @@ export default function VoiceDemo() {
         </nav>
 
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-4 mb-8">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
                 Voice-Based Service Inquiry
@@ -74,9 +108,11 @@ export default function VoiceDemo() {
                 Experience AI-powered voice interactions in Japanese with real-time translation
               </p>
             </div>
-            <div className="bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300 px-3 py-1 rounded-full text-sm font-medium">
-              (stubbed)
-            </div>
+            {isStubMode() && (
+              <div className="self-start sm:self-auto shrink-0 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300 px-3 py-1 rounded-full text-sm font-medium">
+                (stubbed)
+              </div>
+            )}
           </div>
 
           {/* Voice Recording Section */}
@@ -89,7 +125,8 @@ export default function VoiceDemo() {
                   ? 'bg-red-600 hover:bg-red-700 animate-pulse' 
                   : 'bg-blue-600 hover:bg-blue-700'
               } text-white disabled:bg-gray-400`}
-              aria-label="Start voice recording"
+              aria-label={isRecording ? 'Recording in progress' : 'Start voice recording'}
+              aria-live="polite"
             >
               <Mic className="h-8 w-8 mb-2" />
               <span className="text-sm font-medium">
@@ -130,6 +167,12 @@ export default function VoiceDemo() {
             </button>
           </div>
 
+          {error && (
+            <div role="alert" className="mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 rounded-lg">
+              {error}
+            </div>
+          )}
+
           {/* Translation Results */}
           {englishTranslation && (
             <div className="mb-8 p-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
@@ -158,14 +201,17 @@ export default function VoiceDemo() {
                   Agent Response
                 </h3>
               </div>
-              <p className="text-gray-700 dark:text-gray-300">
-                {agentResponse}
+              <p className="text-gray-700 dark:text-gray-300 mb-3" lang="ja">
+                {agentResponse.ja}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {agentResponse.en}
               </p>
             </div>
           )}
 
           {/* Audio Response */}
-          {audioUrl && (
+          {audio && (
             <div className="mb-8 p-6 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
               <div className="flex items-center mb-4">
                 <Play className="h-6 w-6 text-purple-600 mr-2" />
@@ -174,17 +220,22 @@ export default function VoiceDemo() {
                 </h3>
               </div>
               <div className="flex items-center justify-center">
-                <audio
-                  controls
-                  src={audioUrl}
-                  className="w-full max-w-md"
-                  aria-label="Japanese audio response"
+                <button
+                  onClick={handlePlay}
+                  disabled={!canSpeak()}
+                  className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white font-medium rounded-lg transition-colors duration-200 flex items-center"
+                  aria-label={isSpeaking ? 'Stop audio response' : 'Play Japanese audio response'}
                 >
-                  Your browser does not support the audio element.
-                </audio>
+                  {isSpeaking ? <Square className="h-4 w-4 mr-2" /> : <Play className="h-4 w-4 mr-2" />}
+                  {isSpeaking ? 'Stop' : `Play response (~${audio.duration}s)`}
+                </button>
               </div>
               <p className="text-sm text-gray-600 dark:text-gray-400 text-center mt-2">
-                AI-generated Japanese response using Shisa AI text-to-speech
+                {canSpeak()
+                  ? isStubMode()
+                    ? 'Played with your browser’s speech engine (Shisa AI TTS in production)'
+                    : 'AI-generated Japanese response using Shisa AI text-to-speech'
+                  : 'Speech playback is not supported in this browser.'}
               </p>
             </div>
           )}
@@ -205,13 +256,13 @@ export default function VoiceDemo() {
                 <div className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-3 mt-0.5 flex-shrink-0">
                   2
                 </div>
-                <p>Click "Process Inquiry" to translate the Japanese text and route to the citizen service agent</p>
+                <p>Click &ldquo;Process Inquiry&rdquo; to translate the Japanese text and route to the citizen service agent</p>
               </div>
               <div className="flex items-start">
                 <div className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-3 mt-0.5 flex-shrink-0">
                   3
                 </div>
-                <p>Listen to the AI-generated Japanese audio response using the audio player</p>
+                <p>Press &ldquo;Play response&rdquo; to hear the AI-generated Japanese reply</p>
               </div>
             </div>
           </div>

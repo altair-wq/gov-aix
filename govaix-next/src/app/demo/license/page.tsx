@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { verifyBusiness } from '@/lib/services/crustData';
 import { generateComplianceCode } from '@/lib/services/randomLabs';
 import { routeToAgent } from '@/lib/services/dedalus';
+import { isStubMode } from '@/lib/config/env';
+import type { BusinessVerification, ComplianceCode } from '@/lib/services/types';
 import { Home, ArrowRight, CheckCircle, AlertCircle, Code } from 'lucide-react';
 import Link from 'next/link';
 
@@ -13,25 +15,38 @@ export default function LicenseDemo() {
     registrationId: '',
     ownerEmail: ''
   });
-  const [verification, setVerification] = useState<any>(null);
-  const [complianceCode, setComplianceCode] = useState<any>(null);
+  const [verification, setVerification] = useState<BusinessVerification | null>(null);
+  const [complianceCode, setComplianceCode] = useState<ComplianceCode | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showStubBadge, setShowStubBadge] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [submission, setSubmission] = useState<string | null>(null);
+  const showStubBadge = isStubMode();
+
+  const updateField = (field: keyof typeof formData) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData((prev) => ({ ...prev, [field]: e.target.value }));
+    // Editing the application invalidates any previous verification.
+    setVerification(null);
+    setComplianceCode(null);
+    setSubmission(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    
+    setError(null);
+    setSubmission(null);
+
     try {
-      // Verify business
-      const verificationResult = await verifyBusiness(formData.businessName, formData.registrationId);
+      // Verification and code generation are independent; run them together.
+      const [verificationResult, codeResult] = await Promise.all([
+        verifyBusiness(formData.businessName, formData.registrationId),
+        generateComplianceCode(`Business license for ${formData.businessName}`),
+      ]);
       setVerification(verificationResult);
-      
-      // Generate compliance code
-      const codeResult = await generateComplianceCode(`Business license for ${formData.businessName}`);
       setComplianceCode(codeResult);
-    } catch (error) {
-      console.error('Error processing license application:', error);
+    } catch (err) {
+      console.error('Error processing license application:', err);
+      setError('We could not verify this business right now. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -39,6 +54,7 @@ export default function LicenseDemo() {
 
   const handleSubmitToDedalus = async () => {
     setIsSubmitting(true);
+    setError(null);
     try {
       const result = await routeToAgent('license', {
         businessName: formData.businessName,
@@ -47,9 +63,10 @@ export default function LicenseDemo() {
         verification,
         complianceCode
       });
-      alert('Application submitted to Dedalus successfully!');
-    } catch (error) {
-      console.error('Error submitting to Dedalus:', error);
+      setSubmission(result.message);
+    } catch (err) {
+      console.error('Error submitting to Dedalus:', err);
+      setError('Submission failed. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -69,7 +86,7 @@ export default function LicenseDemo() {
         </nav>
 
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-4 mb-8">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
                 Business License Application
@@ -79,7 +96,7 @@ export default function LicenseDemo() {
               </p>
             </div>
             {showStubBadge && (
-              <div className="bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300 px-3 py-1 rounded-full text-sm font-medium">
+              <div className="self-start sm:self-auto shrink-0 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300 px-3 py-1 rounded-full text-sm font-medium">
                 (stubbed)
               </div>
             )}
@@ -95,7 +112,7 @@ export default function LicenseDemo() {
                   type="text"
                   id="businessName"
                   value={formData.businessName}
-                  onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+                  onChange={updateField('businessName')}
                   className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   required
                   aria-label="Business name"
@@ -110,7 +127,7 @@ export default function LicenseDemo() {
                   type="text"
                   id="registrationId"
                   value={formData.registrationId}
-                  onChange={(e) => setFormData({ ...formData, registrationId: e.target.value })}
+                  onChange={updateField('registrationId')}
                   className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   required
                   aria-label="Registration ID"
@@ -126,7 +143,7 @@ export default function LicenseDemo() {
                 type="email"
                 id="ownerEmail"
                 value={formData.ownerEmail}
-                onChange={(e) => setFormData({ ...formData, ownerEmail: e.target.value })}
+                onChange={updateField('ownerEmail')}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 required
                 aria-label="Owner email address"
@@ -143,10 +160,23 @@ export default function LicenseDemo() {
             </button>
           </form>
 
+          {error && (
+            <div role="alert" className="mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 rounded-lg">
+              {error}
+            </div>
+          )}
+
           {/* Verification Results */}
           {verification && (
-            <div className="mb-8 p-6 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-              <div className="flex items-center mb-4">
+            <div
+              aria-live="polite"
+              className={`mb-8 p-6 rounded-lg border ${
+                verification.verified
+                  ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                  : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-y-1 mb-4">
                 {verification.verified ? (
                   <CheckCircle className="h-6 w-6 text-green-600 mr-2" />
                 ) : (
@@ -205,7 +235,14 @@ export default function LicenseDemo() {
           )}
 
           {/* Submit to Dedalus Button */}
-          {verification && complianceCode && (
+          {submission && (
+            <div role="status" className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-300 rounded-lg flex items-center">
+              <CheckCircle className="h-5 w-5 mr-2 shrink-0" />
+              {submission}
+            </div>
+          )}
+
+          {verification && complianceCode && !submission && (
             <div className="flex justify-center">
               <button
                 onClick={handleSubmitToDedalus}
@@ -213,7 +250,7 @@ export default function LicenseDemo() {
                 className="px-8 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-medium rounded-lg transition-colors duration-200 flex items-center"
                 aria-label="Submit application to Dedalus"
               >
-                Submit to Dedalus
+                {isSubmitting ? 'Submitting...' : 'Submit to Dedalus'}
               </button>
             </div>
           )}

@@ -1,4 +1,4 @@
-import { Clock, Server, Code, Settings, Globe, Mic } from 'lucide-react';
+import { Clock, Server, Code, Settings, Globe } from 'lucide-react';
 
 export default function DemoBuild() {
   const timeline = [
@@ -61,7 +61,7 @@ export default function DemoBuild() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {timeline.map((step, index) => {
+          {timeline.map((step) => {
             const Icon = step.icon;
             return (
               <div

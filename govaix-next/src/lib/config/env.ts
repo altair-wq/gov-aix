@@ -1,20 +1,17 @@
-// Environment variable types
-interface EnvVars {
-  DEDALUS_API_URL: string;
-  RANDOM_LABS_API_KEY: string;
-  CRUSTDATA_API_KEY: string;
-  LINGO_API_KEY: string;
-  SHISA_API_KEY: string;
-}
+/**
+ * Client-visible configuration.
+ *
+ * Only non-secret values may use the NEXT_PUBLIC_ prefix: anything with that
+ * prefix is inlined into the browser bundle. When the real Random Labs,
+ * CrustData, Lingo.dev and Shisa integrations are wired up, their API keys
+ * must be read server-side (route handlers / server actions) without the
+ * NEXT_PUBLIC_ prefix.
+ */
+export const env = {
+  DEDALUS_API_URL: process.env.NEXT_PUBLIC_DEDALUS_API_URL ?? '',
+} as const;
 
-export const env: EnvVars = {
-  DEDALUS_API_URL: process.env.NEXT_PUBLIC_DEDALUS_API_URL || 'https://api.dedalus.mock',
-  RANDOM_LABS_API_KEY: process.env.NEXT_PUBLIC_RANDOM_LABS_API_KEY || 'mock-key',
-  CRUSTDATA_API_KEY: process.env.NEXT_PUBLIC_CRUSTDATA_API_KEY || 'mock-key',
-  LINGO_API_KEY: process.env.NEXT_PUBLIC_LINGO_API_KEY || 'mock-key',
-  SHISA_API_KEY: process.env.NEXT_PUBLIC_SHISA_API_KEY || 'mock-key'
-};
-
+/** True while the demo runs against local mocks instead of live services. */
 export function isStubMode(): boolean {
-  return !process.env.NEXT_PUBLIC_DEDALUS_API_URL;
+  return !env.DEDALUS_API_URL;
 }
